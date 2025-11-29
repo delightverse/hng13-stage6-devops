@@ -1,0 +1,119 @@
+---
+- name: Ensure Traefik directory exists
+  file:
+    path: "{{ app_directory }}/traefik"
+    state: directory
+    mode: '0755'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+
+- name: Create acme.json for SSL certificates
+  file:
+    path: "{{ app_directory }}/traefik/acme.json"
+    state: touch
+    mode: '0600'
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+  changed_when: false
+
+- name: Check if repository exists
+  stat:
+    path: "{{ app_directory }}/.git"
+  register: git_repo
+
+- name: Remove application directory if not a git repo
+  file:
+    path: "{{ app_directory }}"
+    state: absent
+  become: true
+  when: not git_repo.stat.exists
+
+- name: Clone repository as root
+  git:
+    repo: "{{ github_repo_url }}"
+    dest: "{{ app_directory }}"
+    version: "{{ github_branch }}"
+    force: yes
+    clone: yes
+    update: yes
+  become: true
+
+- name: Set ownership of application directory
+  file:
+    path: "{{ app_directory }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    recurse: yes
+  become: true
+
+- name: Create .env file from template
+  template:
+    src: env.j2
+    dest: "{{ app_directory }}/.env"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+
+- name: Stop existing containers
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_directory }}"
+    state: stopped
+  become: true
+  ignore_errors: true
+
+- name: Remove existing containers
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_directory }}"
+    state: absent
+  become: true
+  ignore_errors: true
+
+- name: Start Docker Compose services
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_directory }}"
+    state: present
+    build: always
+    pull: always
+  become: true
+  register: compose_output
+
+- name: Display Docker Compose output
+  debug:
+    var: compose_output
+  when: compose_output is defined
+
+- name: Wait for Traefik to be ready
+  wait_for:
+    host: localhost
+    port: 80
+    delay: 5
+    timeout: 60
+  ignore_errors: true
+
+- name: Wait for HTTPS to be ready
+  wait_for:
+    host: localhost
+    port: 443
+    delay: 5
+    timeout: 120
+  ignore_errors: true
+
+- name: Create systemd service for Docker Compose
+  template:
+    src: docker-compose.service.j2
+    dest: /etc/systemd/system/docker-compose-todo.service
+    mode: '0644'
+  become: true
+  notify: Reload systemd and enable service
+
+- name: Get container status
+  command: docker ps
+  register: docker_status
+  changed_when: false
+  become: true
+
+- name: Display running containers
+  debug:
+    msg: "{{ docker_status.stdout_lines }}"
