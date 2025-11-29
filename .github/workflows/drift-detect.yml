@@ -1,0 +1,139 @@
+name: Drift Detection
+
+on:
+  # Run on pushes to main that affect Terraform
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/terraform/**'
+  
+  # Run manually
+  workflow_dispatch:
+  
+  # Run on schedule (optional - checks for drift daily)
+  schedule:
+    - cron: '0 9 * * *'  # 9 AM UTC daily
+
+jobs:
+  detect-drift:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      
+      - name: Terraform Init
+        working-directory: infra/terraform
+        run: terraform init
+      
+      - name: Terraform Plan (Detect Drift)
+        id: plan
+        working-directory: infra/terraform
+        run: terraform plan -detailed-exitcode -out=tfplan
+        continue-on-error: true
+      
+      - name: Check Exit Code
+        run: |
+          echo "Terraform plan exit code: ${{ steps.plan.outputs.exitcode }}"
+          if [ "${{ steps.plan.outputs.exitcode }}" == "0" ]; then
+            echo "✅ No drift detected"
+          elif [ "${{ steps.plan.outputs.exitcode }}" == "2" ]; then
+            echo "🚨 Drift detected!"
+          else
+            echo "❌ Plan failed"
+          fi
+      
+      - name: Send Drift Alert Email
+        if: steps.plan.outputs.exitcode == '2'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.office365.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: '🚨 Terraform Drift Detected - Action Required'
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: Drift Detection Monitor
+          body: |
+            🚨 Infrastructure drift detected!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            Triggered by: ${{ github.event_name }}
+            
+            Drift has been detected in your Terraform-managed infrastructure.
+            This means the actual infrastructure state differs from your code.
+            
+            Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ⚠️ Please review the changes before applying.
+      
+      - name: Create Approval Issue
+        if: steps.plan.outputs.exitcode == '2'
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ github.TOKEN }}
+          approvers: delightverse
+          minimum-approvals: 1
+          issue-title: "🚨 Drift Detected - Manual Approval Required"
+          issue-body: |
+            ## Drift Detection Alert
+            
+            Infrastructure drift has been detected.
+            
+            **Details:**
+            - Repository: ${{ github.repository }}
+            - Branch: ${{ github.ref_name }}
+            - Commit: ${{ github.sha }}
+            - Triggered by: ${{ github.event_name }}
+            
+            **Action Required:**
+            Please review the Terraform plan and approve to apply changes.
+            
+            [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+      
+      - name: Terraform Apply (After Approval)
+        if: steps.plan.outputs.exitcode == '2'
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve tfplan
+      
+      - name: Send Success Email
+        if: steps.plan.outputs.exitcode == '2'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.office365.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: '✅ Drift Corrected Successfully'
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: Drift Detection Monitor
+          body: |
+            ✅ Infrastructure drift has been corrected!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            
+            Terraform apply completed successfully.
+            Your infrastructure is now in sync with your code.
+            
+            Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      
+      - name: No Drift Detected
+        if: steps.plan.outputs.exitcode == '0'
+        run: echo "✅ No drift detected. Infrastructure matches code."
