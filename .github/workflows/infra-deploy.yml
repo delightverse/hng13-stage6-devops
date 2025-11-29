@@ -1,0 +1,220 @@
+name: 🏗️ Infrastructure Deployment (AWS)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/terraform/**'
+      - 'infra/ansible/**'
+      - '.github/workflows/infra-deploy.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'infra/terraform/**'
+      - 'infra/ansible/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  TF_VERSION: '1.5.0'
+  ANSIBLE_VERSION: '2.15.0'
+  WORKING_DIR: './infra/terraform'
+  AWS_REGION: 'us-east-1'
+
+jobs:
+  terraform-plan:
+    name: 📋 Terraform Plan & Drift Detection
+    runs-on: ubuntu-latest
+    outputs:
+      has_drift: ${{ steps.drift_check.outputs.has_drift }}
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: 🎯 Terraform Init
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=todo-app/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: 📝 Terraform Plan
+        id: plan
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_github_repo_url: ${{ github.server_url }}/${{ github.repository }}
+          TF_VAR_domain: ${{ secrets.DOMAIN }}
+          TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+          TF_VAR_run_ansible: "false"
+        run: |
+          terraform plan -detailed-exitcode -out=tfplan || echo "exitcode=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: 🔍 Check for Drift
+        id: drift_check
+        run: |
+          exitcode=${{ steps.plan.outputs.exitcode }}
+          if [ "$exitcode" == "2" ]; then
+            echo "has_drift=true" >> $GITHUB_OUTPUT
+            echo "🚨 DRIFT DETECTED!"
+          elif [ "$exitcode" == "0" ]; then
+            echo "has_drift=false" >> $GITHUB_OUTPUT
+            echo "✅ No drift detected"
+          else
+            echo "❌ Terraform plan failed"
+            exit 1
+          fi
+
+      - name: 📤 Save Terraform Plan
+        if: steps.drift_check.outputs.has_drift == 'true'
+        uses: actions/upload-artifact@v3
+        with:
+          name: terraform-plan
+          path: ${{ env.WORKING_DIR }}/tfplan
+          retention-days: 7
+
+  notify-drift:
+    name: 📧 Send Drift Notification
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: needs.terraform-plan.outputs.has_drift == 'true'
+    
+    steps:
+      - name: 📧 Send Email Notification
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: '🚨 Terraform Drift Detected - ${{ github.repository }}'
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: 'DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>'
+          body: |
+            Infrastructure Drift Detected on AWS!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            
+            Action Required:
+            1. Review the Terraform plan
+            2. Approve deployment if changes are expected
+            3. Investigate if changes are unexpected
+            
+            View Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ⚠️ Deployment paused awaiting manual approval.
+
+  approve-deployment:
+    name: ⏸️ Awaiting Approval
+    runs-on: ubuntu-latest
+    needs: [terraform-plan, notify-drift]
+    if: needs.terraform-plan.outputs.has_drift == 'true' && github.event_name != 'workflow_dispatch'
+    environment:
+      name: production-approval
+    
+    steps:
+      - name: ✅ Deployment Approved
+        run: echo "Deployment approved. Proceeding..."
+
+  terraform-apply:
+    name: 🚀 Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [terraform-plan, approve-deployment]
+    if: |
+      always() && 
+      (needs.terraform-plan.outputs.has_drift == 'true' && needs.approve-deployment.result == 'success') ||
+      (needs.terraform-plan.outputs.has_drift == 'false') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: 🎯 Terraform Init
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=todo-app/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: 🚀 Terraform Apply
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_github_repo_url: ${{ github.server_url }}/${{ github.repository }}
+          TF_VAR_domain: ${{ secrets.DOMAIN }}
+          TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+        run: terraform apply -auto-approve
+
+      - name: 📊 Terraform Output
+        working-directory: ${{ env.WORKING_DIR }}
+        run: terraform output
+
+  notify-success:
+    name: ✅ Deployment Success
+    runs-on: ubuntu-latest
+    needs: terraform-apply
+    if: success()
+    
+    steps:
+      - name: 📧 Send Success Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: '✅ Infrastructure Deployment Successful - ${{ github.repository }}'
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: 'DevOps CI/CD <${{ secrets.EMAIL_USERNAME }}>'
+          body: |
+            Infrastructure Deployment Completed Successfully on AWS!
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            
+            View Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

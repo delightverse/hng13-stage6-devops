@@ -1,0 +1,64 @@
+---
+- name: Deploy TODO Microservices Application
+  hosts: app_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    app_directory: "/opt/todo-app"
+    docker_networks:
+      - web
+      - backend
+
+  pre_tasks:
+    - name: Display deployment information
+      debug:
+        msg: |
+          ========================================
+          Deploying to: {{ inventory_hostname }}
+          Domain: {{ domain }}
+          Repository: {{ github_repo_url }}
+          Branch: {{ github_branch }}
+          ========================================
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+  roles:
+    - role: dependencies
+      tags: ['dependencies', 'setup']
+
+    - role: deploy
+      tags: ['deploy', 'app']
+
+  post_tasks:
+    - name: Display access information
+      debug:
+        msg: |
+          ========================================
+          Deployment Complete!
+          ========================================
+          Application URL: https://{{ domain }}
+          Traefik Dashboard: https://traefik.{{ domain }}
+          
+          SSH: ssh {{ ansible_user }}@{{ inventory_hostname }}
+          
+          Commands:
+          - View logs: docker compose logs -f
+          - Restart: docker compose restart
+          - Stop: docker compose down
+          - Start: docker compose up -d
+          ========================================
+
+    - name: Wait for services to be healthy
+      uri:
+        url: "http://{{ inventory_hostname }}"
+        status_code: [200, 301, 302]
+        timeout: 5
+      register: result
+      until: result.status in [200, 301, 302]
+      retries: 30
+      delay: 10
+      ignore_errors: true
