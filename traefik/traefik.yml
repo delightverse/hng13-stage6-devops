@@ -21,7 +21,7 @@ entryPoints:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: "lobotajski@gmail.com"
+      email: "lobotajski@outlook.com"
       storage: /acme.json
       httpChallenge:
         entryPoint: http
