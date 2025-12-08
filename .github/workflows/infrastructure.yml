@@ -74,7 +74,8 @@ jobs:
         with:
           connection_url: smtp://smtp.gmail.com:587
           server_address: smtp.gmail.com
-          server_port: 587
+          server_port: 465
+          secure: true
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
           subject: '🚨 Terraform Drift Detected - Approval Required'
