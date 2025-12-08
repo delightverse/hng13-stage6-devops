@@ -69,7 +69,7 @@ jobs:
           fi
 
       - name: Send drift detection email
-        if: steps.drift_check.outputs.drift_detected == 'true'
+        if: steps.drift.outputs.drift_detected == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com  
