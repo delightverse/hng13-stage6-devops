@@ -22,7 +22,7 @@ entryPoints:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: "lobotajski@outlook.com"
+      email: "lobotajski@email.com"
       storage: /letsencrypt/acme.json
       httpChallenge:
         entryPoint: web
