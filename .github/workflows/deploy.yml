@@ -77,7 +77,7 @@ jobs:
         with:
           server_address: smtp.gmail.com  
           server_port: 587
-          secure: true
+          secure: false
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
           from: ${{ secrets.EMAIL_USERNAME }}
