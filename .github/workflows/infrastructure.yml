@@ -1,0 +1,169 @@
+#infrastructure.yml
+name: Infrastructure Deployment
+
+on:
+  push:
+    paths:
+      - 'infra/terraform/**'
+      - 'infra/ansible/**'
+      - '.github/workflows/infrastructure.yml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: 1.6.0
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan & Drift Detection
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.drift_check.outputs.drift_detected }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: ./infra/terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ./infra/terraform
+        env:
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          set +e  # Don't exit on error
+          terraform plan -out=tfplan -detailed-exitcode 2>&1 | tee plan_output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          
+          echo "📊 Terraform plan exit code: $EXIT_CODE"
+          
+          # Exit codes: 0 = no changes, 1 = error, 2 = changes detected
+          if [ $EXIT_CODE -eq 1 ]; then
+            echo "❌ Terraform plan failed"
+            exit 1
+          elif [ $EXIT_CODE -eq 2 ]; then
+            echo "🚨 Changes detected!"
+          elif [ $EXIT_CODE -eq 0 ]; then
+            echo "✅ No changes detected"
+          fi
+          
+          echo "plan_exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Exit 0 so the job succeeds even when changes are detected (exit code 2)
+          exit 0
+
+      - name: Check for drift
+        id: drift_check
+        working-directory: ./infra/terraform
+        run: |
+          PLAN_EXIT_CODE=${{ steps.plan.outputs.plan_exit_code }}
+          
+          echo "🔍 Checking drift with exit code: $PLAN_EXIT_CODE"
+          
+          if [ "$PLAN_EXIT_CODE" = "0" ]; then
+            echo "drift_detected=false" >> $GITHUB_OUTPUT
+            echo "✅ No drift detected - no changes needed"
+          elif [ "$PLAN_EXIT_CODE" = "2" ]; then
+            echo "drift_detected=true" >> $GITHUB_OUTPUT
+            echo "🚨 Drift detected - changes are needed!"
+          fi
+
+      - name: Send drift detection email
+        if: steps.drift_check.outputs.drift_detected == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.office365.com
+          server_port: 587
+          secure: true
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: '🚨 Terraform Drift Detected - Approval Required'
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: HNG DevOps Bot
+          body: |
+            Drift has been detected in your infrastructure!
+            
+            Review the changes and approve the workflow to proceed with terraform apply.
+            
+            Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Upload plan
+        if: steps.drift_check.outputs.drift_detected == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: infra/terraform/tfplan
+
+  approve-changes:
+    name: Manual Approval
+    needs: terraform-plan
+    if: needs.terraform-plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    
+    steps:
+      - name: Wait for approval
+        run: echo "✅ Changes approved"
+
+  terraform-apply:
+    name: Terraform Apply
+    needs: [terraform-plan, approve-changes]
+    if: always() && (needs.approve-changes.result == 'success' || needs.terraform-plan.outputs.has_changes != 'true')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Download plan
+        if: needs.terraform-plan.outputs.has_changes == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: infra/terraform/
+
+      - name: Terraform Init
+        working-directory: ./infra/terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ./infra/terraform
+        env:
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          if [ -f tfplan ]; then
+            echo "📦 Applying Terraform plan..."
+            terraform apply -auto-approve tfplan
+          else
+            echo "✅ No plan file found - no changes to apply"
+          fi

@@ -1,12 +1,12 @@
 terraform {
   required_version = ">= 1.0"
-  
+
   backend "s3" {
     bucket = "delight-terraform-state"
     key    = "todo-app/terraform.tfstate"
     region = "us-east-1"
   }
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -112,6 +112,7 @@ resource "aws_security_group" "app_server" {
   }
 }
 
+/*
 # IAM Role for SSM
 resource "aws_iam_role" "ssm_role" {
   name = "${var.project_name}-ssm-role"
@@ -143,6 +144,7 @@ resource "aws_iam_instance_profile" "ssm_profile" {
   name = "${var.project_name}-ssm-profile"
   role = aws_iam_role.ssm_role.name
 }
+*/
 
 # EC2 Key Pair
 resource "aws_key_pair" "deployer" {
@@ -154,11 +156,11 @@ resource "aws_key_pair" "deployer" {
 resource "aws_instance" "app_server" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
-  
+
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.app_server.id]
   key_name                    = aws_key_pair.deployer.key_name
-  iam_instance_profile        = aws_iam_instance_profile.ssm_profile.name
+ # iam_instance_profile        = aws_iam_instance_profile.ssm_profile.name
   associate_public_ip_address = true
 
   root_block_device {
@@ -186,12 +188,12 @@ resource "aws_instance" "app_server" {
 # Generate Ansible Inventory
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/templates/inventory.tpl", {
-    server_ip         = aws_instance.app_server.public_ip
-    ssh_key_path      = var.ssh_private_key_path
-    domain            = var.domain
-    acme_email        = var.acme_email
-    jwt_secret        = var.jwt_secret
-    github_repo       = var.github_repo
+    server_ip    = aws_instance.app_server.public_ip
+    ssh_key_path = var.ssh_private_key_path
+    domain       = var.domain
+    acme_email   = var.acme_email
+    jwt_secret   = var.jwt_secret
+    github_repo  = var.github_repo
   })
   filename = "${path.module}/../ansible/inventory.ini"
 
