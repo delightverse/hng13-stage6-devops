@@ -22,9 +22,7 @@ env:
   TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
   TF_VAR_domain: ${{ secrets.DOMAIN }}
   TF_VAR_acme_email: ${{ secrets.ACME_EMAIL }}
-  TF_VAR_github_repo: ${{ secrets.GITHUB_REPO }}
-
-  # AWS credentials
+  TF_VAR_git_repo: ${{ secrets.GIT_REPO }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
@@ -52,17 +50,13 @@ jobs:
           ssh -i ~/.ssh/deploy_key ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'EOF'
             set -e
             echo "🚀 Starting deployment..."
-            
             cd ${{ env.DEPLOY_PATH }}
-            echo "📥 Pulling latest code from GitHub..."
+            echo "📥 Pulling latest code..."
             sudo git pull origin main
-            
             echo "🔨 Rebuilding Docker containers..."
             sudo docker compose up -d --build
-            
             echo "⏳ Waiting for services to start..."
             sleep 10
-            
             echo "✅ Deployment complete!"
             sudo docker compose ps
           EOF
@@ -83,23 +77,23 @@ jobs:
         with:
           server_address: smtp.office365.com
           server_port: 587
-          secure: false
-          tls: true
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: ${{ job.status == 'success' && '✅ Deployment Successful' || '❌ Deployment Failed' }}
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
           from: ${{ secrets.EMAIL_USERNAME }}
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          subject: ${{ job.status == 'success' && '✅ Deployment Successful' || '❌ Deployment Failed' }}
           body: |
             Deployment Status: ${{ job.status }}
-            
+
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
             Commit Message: ${{ github.event.head_commit.message }}
             Triggered by: ${{ github.actor }}
-            
+
             Deployment URL: https://delightverse.mooo.com
             Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
+
             ${{ job.status == 'success' && '🎉 Your application has been successfully deployed!' || '⚠️ Deployment failed. Please check the logs.' }}
+          secure: false
+          tls: true
