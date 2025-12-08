@@ -71,3 +71,6 @@ letsencrypt/
 # Temporary files
 tmp/
 temp/
+
+#for now 
+.github/

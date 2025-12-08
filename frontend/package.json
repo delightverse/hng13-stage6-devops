@@ -22,7 +22,7 @@
     "zipkin-transport-http": "^0.11.2"
   },
   "devDependencies": {
-    "sass": "^1.77.2",
+    "node-sass": "^4.14.1",
     "sass-loader": "^6.0.7",
     "autoprefixer": "^7.2.6",
     "babel-core": "^6.26.3",
@@ -77,4 +77,3 @@
     "not ie <= 8"
   ]
 }
-

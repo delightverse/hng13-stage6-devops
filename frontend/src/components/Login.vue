@@ -6,7 +6,8 @@
             <form class="form-horizontal login-form" role="form" v-on:submit.prevent="doLogin">
                 <div class="row text-center">
                     <div class="col-md-12">
-                        <h2>Welcome to HNG13 DevOps Stage Three Task</h2>
+                        <h2>Welcome to HNG13 DevOps Stage Six Task</h2>
+                        <h3>Delightverse's TODO App - HNG Stage 6</h3>
                         <hr class="custom-hr" />
                     </div>
                 </div>

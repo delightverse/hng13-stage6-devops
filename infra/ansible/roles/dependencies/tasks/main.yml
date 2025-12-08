@@ -1,5 +1,10 @@
 ---
-- name: Install prerequisite packages
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install required packages
   apt:
     name:
       - apt-transport-https
@@ -7,54 +12,21 @@
       - curl
       - gnupg
       - lsb-release
-      - software-properties-common
-      - python3-pip
-      - python3-setuptools
       - git
+      - python3-pip
     state: present
-    update_cache: true
-  become: true
-
-- name: Remove old Docker packages if present
-  apt:
-    name:
-      - docker
-      - docker-engine
-      - docker.io
-      - containerd
-      - runc
-    state: absent
-  become: true
-  ignore_errors: true
-
-- name: Create keyrings directory
-  file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: '0755'
-  become: true
 
 - name: Add Docker GPG key
-  shell: |
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    chmod a+r /etc/apt/keyrings/docker.gpg
-  args:
-    creates: /etc/apt/keyrings/docker.gpg
-  become: true
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
 
 - name: Add Docker repository
-  shell: |
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-  args:
-    creates: /etc/apt/sources.list.d/docker.list
-  become: true
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
 
-- name: Update apt cache after adding Docker repo
-  apt:
-    update_cache: true
-  become: true
-
-- name: Install Docker Engine
+- name: Install Docker
   apt:
     name:
       - docker-ce
@@ -63,84 +35,19 @@
       - docker-buildx-plugin
       - docker-compose-plugin
     state: present
-    update_cache: true
-  become: true
+    update_cache: yes
 
-- name: Ensure containerd is configured
-  file:
-    path: /etc/containerd
-    state: directory
-    mode: '0755'
-  become: true
-
-- name: Generate default containerd config
-  shell: containerd config default > /etc/containerd/config.toml
-  args:
-    creates: /etc/containerd/config.toml
-  become: true
-
-- name: Restart containerd
-  systemd:
-    name: containerd
-    state: restarted
-    enabled: true
-    daemon_reload: true
-  become: true
-
-- name: Ensure Docker service is enabled and started
+- name: Start and enable Docker
   systemd:
     name: docker
     state: started
-    enabled: true
-    daemon_reload: true
-  become: true
-  register: docker_service
-  retries: 3
-  delay: 5
-  until: docker_service is success
+    enabled: yes
 
-- name: Add user to docker group
+- name: Add ubuntu user to docker group
   user:
-    name: "{{ ansible_user }}"
+    name: ubuntu
     groups: docker
-    append: true
-  become: true
+    append: yes
 
-- name: Install Docker SDK for Python
-  pip:
-    name:
-      - docker
-      - docker-compose
-    state: present
-  become: true
-
-- name: Test Docker installation
-  command: docker run hello-world
-  become: true
-  register: docker_test
-  changed_when: false
-  ignore_errors: true
-
-- name: Display Docker test result
-  debug:
-    var: docker_test.stdout_lines
-  when: docker_test.stdout_lines is defined
-
-- name: Verify Docker Compose plugin
-  command: docker compose version
-  become: true
-  register: compose_version
-  changed_when: false
-
-- name: Display Docker Compose version
-  debug:
-    var: compose_version.stdout
-
-- name: Create Docker networks
-  community.docker.docker_network:
-    name: "{{ item }}"
-    state: present
-  loop:
-    - web
-    - backend
-  become: true
+- name: Reset SSH connection for group changes
+  meta: reset_connection

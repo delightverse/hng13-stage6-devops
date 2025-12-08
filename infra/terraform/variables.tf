@@ -1,102 +1,53 @@
-variable "aws_access_key" {
-  description = "AWS Access Key ID"
-  type        = string
-  sensitive   = true
-}
-
-variable "aws_secret_key" {
-  description = "AWS Secret Access Key"
-  type        = string
-  sensitive   = true
-}
-
 variable "aws_region" {
-  description = "AWS Region"
+  description = "AWS region"
   type        = string
   default     = "us-east-1"
 }
 
-variable "ssh_key_name" {
-  description = "Name of SSH key pair in AWS"
+variable "project_name" {
+  description = "Project name"
   type        = string
-  default     = "devops-ssh-key"
-}
-
-variable "ssh_public_key_path" {
-  description = "Path to SSH public key"
-  type        = string
-  default     = "~/.ssh/id_rsa.pub"
-}
-
-variable "ssh_private_key_path" {
-  description = "Path to SSH private key"
-  type        = string
-  default     = "~/.ssh/id_rsa"
-}
-
-variable "instance_name" {
-  description = "Name of the EC2 instance"
-  type        = string
-  default     = "todo-app-server"
+  default     = "todo-app"
 }
 
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.medium"
+  default     = "t3.micro"
 }
 
-variable "volume_size" {
-  description = "Root volume size in GB"
-  type        = number
-  default     = 30
-}
-
-variable "github_repo_url" {
-  description = "GitHub repository URL"
+variable "ssh_public_key_path" {
+  description = "Path to SSH public key (optional, use ssh_public_key instead in CI/CD)"
   type        = string
 }
 
-variable "github_branch" {
-  description = "Git branch to deploy"
+variable "ssh_public_key" {
+  description = "SSH public key content (use this in CI/CD instead of file path)"
   type        = string
-  default     = "main"
+}
+
+variable "ssh_private_key_path" {
+  description = "Path to SSH private key"
+  type        = string
 }
 
 variable "domain" {
-  description = "Domain name for the application"
+  description = "The home domain"
+  type        = string
+}
+
+variable "acme_email" {
+  description = "Acme email"
   type        = string
 }
 
 variable "jwt_secret" {
-  description = "JWT secret for authentication"
+  description = "JWT secret"
   type        = string
-  sensitive   = true
+  default     = "myfancysecret"
 }
 
-variable "tags" {
-  description = "Additional tags for resources"
-  type        = map(string)
-  default = {
-    Environment = "production"
-    Project     = "todo-app"
-  }
-}
-
-variable "enable_monitoring" {
-  description = "Enable detailed monitoring"
-  type        = bool
-  default     = true
-}
-
-variable "ansible_user" {
-  description = "User for Ansible"
+variable "github_repo" {
+  description = "The github repo that holds the codebase"
   type        = string
-  default     = "ubuntu"
-}
-
-variable "run_ansible" {
-  description = "Run Ansible after provisioning"
-  type        = bool
-  default     = true
 }

@@ -1,23 +1,17 @@
-FROM node:18-alpine
+# todos-api/Dockerfile
+FROM node:14-alpine
 
-RUN apk add --no-cache dumb-init
+WORKDIR /app
 
-WORKDIR /usr/src/app
+# Copy package files
+COPY package*.json ./
 
-# ✅ COPY ONLY package.json (skip lockfile)
-COPY package.json ./
+# Install production dependencies
+RUN npm ci --only=production
 
-RUN npm install --only=production && npm cache clean --force
-
+# Copy source code
 COPY . .
-
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 -G nodejs && \
-    chown -R nodejs:nodejs /usr/src/app
-
-USER nodejs
 
 EXPOSE 8082
 
-ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
