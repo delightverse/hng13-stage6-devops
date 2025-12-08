@@ -19,26 +19,31 @@ variable "instance_type" {
 variable "ssh_public_key_path" {
   description = "Path to SSH public key (optional, use ssh_public_key instead in CI/CD)"
   type        = string
+  default     = ""
 }
 
 variable "ssh_public_key" {
   description = "SSH public key content (use this in CI/CD instead of file path)"
   type        = string
+  default     = ""
 }
 
 variable "ssh_private_key_path" {
   description = "Path to SSH private key"
   type        = string
+  default     = ""
 }
 
 variable "domain" {
   description = "The home domain"
   type        = string
+  default     = ""
 }
 
 variable "acme_email" {
   description = "Acme email"
   type        = string
+  default     = ""
 }
 
 variable "jwt_secret" {
@@ -50,4 +55,5 @@ variable "jwt_secret" {
 variable "github_repo" {
   description = "The github repo that holds the codebase"
   type        = string
+  default     = ""
 }
