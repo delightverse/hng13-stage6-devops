@@ -1,4 +1,3 @@
-#deploy.yml
 name: Application Deployment
 
 on:
@@ -23,7 +22,7 @@ env:
   TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
   TF_VAR_domain: ${{ secrets.DOMAIN }}
   TF_VAR_acme_email: ${{ secrets.ACME_EMAIL }}
-  TF_VAR_git_repo: ${{ secrets.GIT_REPO }}
+  TF_VAR_github_repo: ${{ secrets.GITHUB_REPO }}
 
   # AWS credentials
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -54,33 +53,23 @@ jobs:
             set -e
             echo "🚀 Starting deployment..."
             
-            # Navigate to app directory
             cd ${{ env.DEPLOY_PATH }}
-            
-            # Pull latest changes
             echo "📥 Pulling latest code from GitHub..."
             sudo git pull origin main
             
-            # Rebuild and restart containers
-            echo "🔨 Rebuilding and restarting Docker containers..."
+            echo "🔨 Rebuilding Docker containers..."
             sudo docker compose up -d --build
             
-            # Wait for services to be healthy
             echo "⏳ Waiting for services to start..."
             sleep 10
             
-            # Check container status
-            echo "✅ Deployment complete! Container status:"
+            echo "✅ Deployment complete!"
             sudo docker compose ps
           EOF
 
       - name: Verify deployment
         run: |
-          echo "🔍 Verifying deployment..."
-          
-          # Check if the site is accessible
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://delightverse.mooo.com)
-          
           if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 308 ]; then
             echo "✅ Site is accessible (HTTP $HTTP_CODE)"
           else
@@ -99,7 +88,7 @@ jobs:
           password: ${{ secrets.EMAIL_PASSWORD }}
           subject: ${{ job.status == 'success' && '✅ Deployment Successful' || '❌ Deployment Failed' }}
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: HNG DevOps Bot
+          from: ${{ secrets.EMAIL_USERNAME }}
           body: |
             Deployment Status: ${{ job.status }}
             

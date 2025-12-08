@@ -1,4 +1,3 @@
-#infrastructure.yml
 name: Infrastructure Deployment
 
 on:
@@ -49,19 +48,14 @@ jobs:
           TF_VAR_ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
           TF_VAR_domain: ${{ secrets.DOMAIN }}
           TF_VAR_acme_email: ${{ secrets.ACME_EMAIL }}
-          TF_VAR_git_repo: ${{ secrets.GIT_REPO }}
-
-          # AWS credentials
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_github_repo: ${{ secrets.GITHUB_REPO }}
         run: |
-          set +e  # Don't exit on error
+          set +e
           terraform plan -out=tfplan -detailed-exitcode 2>&1 | tee plan_output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           
           echo "📊 Terraform plan exit code: $EXIT_CODE"
           
-          # Exit codes: 0 = no changes, 1 = error, 2 = changes detected
           if [ $EXIT_CODE -eq 1 ]; then
             echo "❌ Terraform plan failed"
             exit 1
@@ -72,8 +66,6 @@ jobs:
           fi
           
           echo "plan_exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          
-          # Exit 0 so the job succeeds even when changes are detected (exit code 2)
           exit 0
 
       - name: Check for drift
@@ -81,12 +73,11 @@ jobs:
         working-directory: ./infra/terraform
         run: |
           PLAN_EXIT_CODE=${{ steps.plan.outputs.plan_exit_code }}
-          
           echo "🔍 Checking drift with exit code: $PLAN_EXIT_CODE"
           
           if [ "$PLAN_EXIT_CODE" = "0" ]; then
             echo "drift_detected=false" >> $GITHUB_OUTPUT
-            echo "✅ No drift detected - no changes needed"
+            echo "✅ No drift detected"
           elif [ "$PLAN_EXIT_CODE" = "2" ]; then
             echo "drift_detected=true" >> $GITHUB_OUTPUT
             echo "🚨 Drift detected - changes are needed!"
@@ -103,7 +94,7 @@ jobs:
           password: ${{ secrets.EMAIL_PASSWORD }}
           subject: '🚨 Terraform Drift Detected - Approval Required'
           to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: HNG DevOps Bot
+          from: ${{ secrets.EMAIL_USERNAME }}
           body: |
             Drift has been detected in your infrastructure!
             
@@ -168,6 +159,7 @@ jobs:
         working-directory: ./infra/terraform
         env:
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           if [ -f tfplan ]; then
             echo "📦 Applying Terraform plan..."
